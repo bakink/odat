@@ -1,6 +1,11 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
+from sys import exit,stdout,version_info
+if version_info[0] < 3:
+	print("ERROT: Python 3 has to be used for this version of ODAT")
+	exit(99)
+
 #PYTHON_ARGCOMPLETE_OK
 try:
 	import argcomplete
@@ -16,7 +21,6 @@ except ImportError:
 
 import argparse, logging, platform, cx_Oracle, string, os, sys
 from Utils import areEquals, configureLogging,ErrorSQLRequest, sidHasBeenGiven, anAccountIsGiven, ipOrNameServerHasBeenGiven, getCredentialsFormated
-from sys import exit,stdout
 
 from Constants import *
 from Output import Output
@@ -27,7 +31,6 @@ from DbmsScheduler import DbmsScheduler,runDbmsSchedulerModule
 from UtlHttp import UtlHttp,runUtlHttpModule
 from HttpUriType import HttpUriType,runHttpUriTypeModule
 from Java import Java,runjavaModule
-from Info import Info
 from PasswordGuesser import PasswordGuesser, runPasswordGuesserModule
 from SIDGuesser import SIDGuesser, runSIDGuesserModule
 from SMB import SMB, runSMBModule
@@ -45,6 +48,8 @@ from Unwrapper import runUnwrapperModule
 from PrivilegeEscalation import PrivilegeEscalation, runPrivilegeEscalationModule
 from CVE_XXXX_YYYY import CVE_XXXX_YYYY, runCVEXXXYYYModule
 from Tnspoison import Tnspoison, runTnsPoisonModule
+from OracleDatabase import OracleDatabase
+import imp
 
 class MyFormatter(argparse.RawTextHelpFormatter):
     """
@@ -84,7 +89,7 @@ def runClean (args):
 		for currentFile in files:
 			logging.debug("Processing file: {0}".format(currentFile))
 			if any(currentFile.lower().endswith(ext) for ext in exts):
-				rep = raw_input("Do you want to delete this file (Y for yes): {0}/{1}? ".format(root, currentFile))
+				rep = input("Do you want to delete this file (Y for yes): {0}/{1}? ".format(root, currentFile))
 				if rep.replace('\n','') == 'Y' : 
 					os.remove(os.path.join(root, currentFile))
 					logging.info("Removing {0}/{1}".format(root, currentFile))
@@ -120,7 +125,7 @@ def runAllModules(args):
 		validAccountsList = passwordGuesser.getAccountsFromFile()
 		for aSid in validSIDsList:
 			for anAccount in validAccountsList:
-				if connectionInformation.has_key(aSid) == False: connectionInformation[aSid] = [[anAccount[0], anAccount[1]]]
+				if (aSid in connectionInformation) == False: connectionInformation[aSid] = [[anAccount[0], anAccount[1]]]
 				else : connectionInformation[aSid].append([anAccount[0], anAccount[1]])
 	elif args['user'] == None and args['password'] == None:
 		for sid in validSIDsList:
@@ -135,30 +140,27 @@ def runAllModules(args):
 				exit(EXIT_NO_ACCOUNTS)
 			else :
 				args['print'].goodNews("Accounts found on {0}:{1}/{2}: {3}".format(args['server'], args['port'], args['sid'],getCredentialsFormated(validAccountsList)))
-				for aLogin, aPassword in validAccountsList.items(): 
-					if connectionInformation.has_key(sid) == False: connectionInformation[sid] = [[aLogin,aPassword]]
+				for aLogin, aPassword in list(validAccountsList.items()): 
+					if (sid in connectionInformation) == False: connectionInformation[sid] = [[aLogin,aPassword]]
 					else : connectionInformation[sid].append([aLogin,aPassword])
 	else:
 		validAccountsList = {args['user']:args['password']}
 		for aSid in validSIDsList:
-			for aLogin, aPassword in validAccountsList.items():
-				if connectionInformation.has_key(aSid) == False: connectionInformation[aSid] = [[aLogin,aPassword]]
+			for aLogin, aPassword in list(validAccountsList.items()):
+				if (aSid in connectionInformation) == False: connectionInformation[aSid] = [[aLogin,aPassword]]
 				else : connectionInformation[aSid].append([aLogin,aPassword])
 	#C)ALL OTHERS MODULES
 	if sidHasBeenGiven(args) == False : return EXIT_MISS_ARGUMENT
 	#elif anAccountIsGiven(args) == False : return EXIT_MISS_ARGUMENT
-	for aSid in connectionInformation.keys():
+	for aSid in list(connectionInformation.keys()):
 		for loginAndPass in connectionInformation[aSid]:
 			args['sid'] , args['user'], args['password'] = aSid, loginAndPass[0],loginAndPass[1]
 			args['print'].title("Testing all modules on the {0} SID with the {1}/{2} account".format(args['sid'],args['user'],args['password']))
 			#INFO ABOUT REMOTE SERVER
-			info = Info(args)
-			status = info.connection()
+			status = OracleDatabase(args).connection()
 			if isinstance(status,Exception):
 				args['print'].badNews("Impossible to connect to the remote database: {0}".format(str(status).replace('\n','')))
 				break
-			info.loadInformationRemoteDatabase()
-			args['info'] = info
 			#UTL_HTTP
 			utlHttp = UtlHttp(args)
 			status = utlHttp.connection()
@@ -223,16 +225,20 @@ def configureLogging(args):
 	datefmt = "%H:%M:%S"
 	#Set log level
 	args['show_sql_requests'] = False
-	if args['verbose']==0: level=logging.WARNING
-	elif args['verbose']==1: level=logging.INFO
-	elif args['verbose']==2: level=logging.DEBUG
-	elif args['verbose']>2: 
-		level=logging.DEBUG
-		args['show_sql_requests'] = True
+	if "verbose" in args:
+		if args['verbose']==0: level=logging.WARNING
+		elif args['verbose']==1: level=logging.INFO
+		elif args['verbose']==2: level=logging.DEBUG
+		elif args['verbose']>2: 
+			level=logging.DEBUG
+			args['show_sql_requests'] = True
+	else:
+		level=level=logging.WARNING
 	#Define color for logs
-	if args['no-color'] == False and COLORLOG_AVAILABLE==True:
+	if 'no-color' in args and args['no-color'] == False and COLORLOG_AVAILABLE==True:
 		formatter = ColoredFormatter(logformatColor, datefmt=datefmt,log_colors={'CRITICAL': 'bold_red', 'ERROR': 'red', 'WARNING': 'yellow'})
 	else : 
+		args['no-color']=True
 		formatter = logging.Formatter(logformatNoColor, datefmt=datefmt)
 	stream = logging.StreamHandler()
 	#stream.setLevel(level)
@@ -263,6 +269,7 @@ def main():
 	PPconnection.add_argument('-U', dest='user', required=False, help='Oracle username')
 	PPconnection.add_argument('-P', dest='password', required=False, default=None, help='Oracle password')
 	PPconnection.add_argument('-d', dest='sid', required=False, help='Oracle System ID (SID)')
+	PPconnection.add_argument('-n', dest='sidAsServiceName', required=False, action='store_true', help='SID (-d) used as a Service Name for connection')
 	PPconnection.add_argument('-t', dest='tnsConnectionStringMode', action='store_true', default=False, help='connection with a TNS connection sting')
 	PPconnection.add_argument('--sysdba', dest='SYSDBA', action='store_true', default=False, help='connection as SYSDBA')
 	PPconnection.add_argument('--sysoper', dest='SYSOPER', action='store_true', default=False, help='connection as SYSOPER')
@@ -338,6 +345,7 @@ def main():
 	PPjava._optionals.title = "java commands"
 	PPjava.add_argument('--exec',dest='exec',default=None,required=False,help='execute a system command on the remote system')
 	PPjava.add_argument('--shell',dest='shell',action='store_true',required=False,help='get a shell on the remote system')
+	PPjava.add_argument('--path-shell',dest='path-shell',default="/bin/sh",required=False,help='specify path to shell (default: %(default)s)')
 	PPjava.add_argument('--reverse-shell',dest='reverse-shell',required=False,nargs=2,metavar=('ip','port'),help='get a reverse shell')
 	PPjava.add_argument('--create-file-CVE-2018-3004',dest='create-file-CVE-2018-3004',required=False,nargs=2,metavar=('data','filename'),help='create (or append to) a file with CVE-2018-3004 (Bypass built in Oracle JVM security)')
 	PPjava.add_argument('--test-module',dest='test-module',action='store_true',help='test the module before use it')	
@@ -435,7 +443,8 @@ def main():
 	PPcve = argparse.ArgumentParser(add_help=False,formatter_class=myFormatterClass)
 	PPcve._optionals.title = "cve commands"
 	PPcve.add_argument('--test-module',dest='test-module',action='store_true',help='test the module before use it')
-	PPcve.add_argument('--set-pwd-2014-4237',dest='set-pwd-2014-4237',nargs=2,metavar=('username','password'),help="modify a Oracle user's password unsing CVE-2014-4237")
+	PPcve.add_argument('--set-pwd-2014-4237',dest='set-pwd-2014-4237',nargs=2,metavar=('username','password'),help="modify a Oracle user's password using CVE-2014-4237")
+	PPcve.add_argument('--cve-2018-3004',dest='cve-2018-3004',nargs=2,metavar=('path','dataInFile'),help="create/modify a text file on the target using CVE-2018-3004")
 	#1.21- Parent parser: search
 	PPsearch = argparse.ArgumentParser(add_help=False,formatter_class=myFormatterClass)
 	PPsearch._optionals.title = "search commands"
@@ -544,10 +553,10 @@ def main():
 	configureLogging(args)
 	args['print'] = Output(args)
 	#5- define encoding
-	reload(sys) 
-	sys.setdefaultencoding(args['encoding'])
+	#imp.reload(sys) 
+	#sys.setdefaultencoding(args['encoding'])
 	#Start the good function
-	if args['auditType']=='unwrapper' or args['auditType']=='clean': pass
+	if 'auditType' in args and (args['auditType']=='unwrapper' or args['auditType']=='clean'): pass
 	else:
 		if ipOrNameServerHasBeenGiven(args) == False : return EXIT_MISS_ARGUMENT
 	arguments.func(args)

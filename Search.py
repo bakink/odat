@@ -35,6 +35,9 @@ class Search (OracleDatabase):
 		'''
 		logging.info("Searching pattern '{0}' in column names".format(sqlPattern.upper()))
 		results = self.__execQuery__(query=self.REQ_INFO_FROM_COLUMN_NAMES.format(sqlPattern.upper()), ld=['owner', 'table_name', 'column_name'])
+		if isinstance(results, Exception):
+			logging.error("Impossible to continue in searchInColumns(): {0}".format(results))
+			return []
 		table = self.getInfoIntable(results, ["owner","table_name","column_name", "example"], showEmptyColumns=showEmptyColumns, withoutExample=withoutExample)
 		return table
 		
@@ -52,8 +55,8 @@ class Search (OracleDatabase):
 				logging.debug("Some results, saved")
 				try :
 					tables += "'"+aPattern+"' in column names:\n"+table+"\n\n"
-				except UnicodeDecodeError,e:
-					print "------->"+e
+				except UnicodeDecodeError as e:
+					print("------->"+e)
 		return tables
 		
 	def getDescOfEachNoSystemTable(self):
@@ -166,7 +169,7 @@ def runSearchModule(args):
 	if args['test-module'] == True :
 		args['print'].title("Test if the Search module can be used")
 		status = search.testAll()
-	if args.has_key('column-names')==True and args['column-names']!=None:
+	if ('column-names' in args)==True and args['column-names']!=None:
 		args['print'].title("Columns which contains the pattern '{0}'".format(args['column-names']))
 		table = search.searchInColumns(args['column-names'],showEmptyColumns=args['show-empty-columns'], withoutExample=args['without-example'])
 		if search.isEmptyTable(table) == True :
@@ -177,10 +180,10 @@ def runSearchModule(args):
 		args['print'].title("Columns which contains the pattern ~password~ like (multi language)")
 		table = search.searchPwdKeyworkInColumnNames(showEmptyColumns=args['show-empty-columns'], withoutExample=args['without-example'])
 		if search.isEmptyTable(table) == True :
-                        args['print'].badNews("no result found")
-                else :
-                        args['print'].goodNews(table)
+			args['print'].badNews("no result found")
+		else :
+			args['print'].goodNews(table)
 	if args['desc-tables']==True:
 		args['print'].title("Descibe each table which is accessible by the current user (without system tables)")
 		table = search.getDescOfEachNoSystemTable()
-		print table
+		print(table)

@@ -57,7 +57,7 @@ class Tnscmd():
 		0x00, 0x00]
 		#put the command in packet
 		for c in command : packet.append(ord(c))
-		sendbuf = ''.join([struct.pack('B', val) for val in packet])
+		sendbuf = b''.join([struct.pack('B', val) for val in packet])
 		#logging.debug("connect to this service")
 		try: 
 			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -69,12 +69,12 @@ class Tnscmd():
 			s.sendall(sendbuf)
 			logging.debug("reading data")
 			# read until socket EOF
-			self.recvdata = s.recv(999999)
+			self.recvdata = str(s.recv(999999))
 			s.close()
-		except socket.timeout,e:	
+		except socket.timeout as e:	
 			logging.critical("Connection Timeout: The server has not responded to the CONNECT_DATA packet send")
 			return False
-		except Exception,e:
+		except Exception as e:
 			logging.critical("Connection Error: {0}".format(e))
 			return False
 		# 1st 12 bytes have some meaning which so far eludes me
@@ -102,7 +102,10 @@ class Tnscmd():
 			return "Unknown"
 		else:
 			hexVsnnum = str(hex(int(vsnnum[0])))[2:]
-			hexVersionList = struct.unpack('cc2sc2s',hexVsnnum)
+			if len(hexVsnnum) == 7:
+				hexVersionList = struct.unpack('cc2sc2s',hexVsnnum.encode())
+			elif len(hexVsnnum) == 8:
+				hexVersionList = struct.unpack('2sc2sc2s',hexVsnnum.encode())
 			for v in hexVersionList : self.version += str(int(v,16)) + '.'
 			return self.version
 		
